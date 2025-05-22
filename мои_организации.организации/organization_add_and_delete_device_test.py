@@ -27,7 +27,7 @@ def test_add_device_with_cleanup(auth_page: Page):
         page.get_by_role("link", name="Отмена").click()
 
         # Ищем устройство в таблице
-        page.get_by_role("row", name="   001 000 000 c405-Andrey").get_by_role("checkbox").check()
+        page.get_by_role("row", name="001 000 000 c405-Andrey").get_by_role("checkbox").check()
 
         # Удаляем устройство
         page.get_by_role("button", name="").click()
