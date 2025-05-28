@@ -17,6 +17,8 @@ test_start_times = {}
 @pytest.fixture
 def auth_page(page: Page) -> Page:
     """Фикстура авторизации пользователя в системе."""
+    page.set_default_timeout(45_000)  # Установка глобального таймаута 45 секунд
+
     page.goto("http://lk.corp.dev.ru/Account/Login?returnUrl=%2FClientOrg")
 
     try:

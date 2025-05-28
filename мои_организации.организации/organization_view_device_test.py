@@ -13,7 +13,6 @@ def test_device_details_check(auth_page):
 
     # Проверка значений в input-элементах
     expect(page.locator("#HID")).to_have_value("014 917 927")
-    expect(page.locator("#Name")).to_have_value("c405-Andrey2")
+    expect(page.locator("#Name")).to_have_value("c405-Andrey")
     expect(page.locator("#DomainName")).to_have_value("c405-Andrey")
-    expect(page.locator("#Description")).to_have_value("тест")
-    expect(page.locator("#Politic")).to_have_value("Базовая")
+

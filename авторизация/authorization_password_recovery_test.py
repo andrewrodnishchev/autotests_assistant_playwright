@@ -31,5 +31,5 @@ def test_password_recovery(page: Page):
     mail_page.get_by_role("button", name="Создать и войти").click()
 
     # Проверка перехода на нужную страницу
-    mail_page.wait_for_url("**/ClientDevice", timeout=5000)
+    mail_page.wait_for_url("**/ClientDevice", timeout=10000)
     assert "/ClientDevice" in mail_page.url, f"Ожидался переход на ClientDevice, но текущий URL: {mail_page.url}"

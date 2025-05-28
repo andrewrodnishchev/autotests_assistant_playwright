@@ -2,7 +2,6 @@ import pytest
 from playwright.sync_api import expect, Page
 
 
-@pytest.mark.order(1)
 def test_access_policy_crud(auth_page: Page):
     page = auth_page
 

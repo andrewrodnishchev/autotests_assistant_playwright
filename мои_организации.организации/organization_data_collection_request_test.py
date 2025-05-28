@@ -9,7 +9,7 @@ def test_send_data_request(auth_page):
     page.get_by_role("link", name="Устройства").click()
 
     # Отметка устройства и отправка команды
-    page.get_by_role("row", name="  014 917 927 c405-Andrey2").get_by_role("checkbox").check()
+    page.get_by_role("row", name="014 917 927").get_by_role("checkbox").check()
     page.get_by_role("button", name="").click()
     page.get_by_role("button", name="Отправить").click()
     # Подтверждение сообщения
