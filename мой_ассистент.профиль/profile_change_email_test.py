@@ -1,7 +1,8 @@
 import pytest
-from playwright.sync_api import Page, expect
 import re
 from datetime import datetime, timedelta
+from playwright.sync_api import Page, expect
+
 
 def parse_email_time(date_str):
     date_str = date_str.lower()
@@ -22,33 +23,48 @@ def parse_email_time(date_str):
     except Exception:
         return None
 
+
 @pytest.mark.usefixtures("page", "context")
 def test_change_email_and_confirm(page: Page, context):
+    # --- Вход под админом и переключение системной настройки ---
+    page.goto("http://lk.corp.dev.ru/Account/Login?returnUrl=%2FClientOrg")
+    page.get_by_role("textbox", name="Email или Логин").click()
+    page.get_by_role("textbox", name="Email или Логин").fill("rodnischev@safib.ru")
+    page.get_by_role("textbox", name="Пароль").click()
+    page.get_by_role("textbox", name="Пароль").fill("1")
+    page.get_by_role("button", name="Вход").click()
+    page.get_by_role("link", name="Администрирование").click()
+    page.get_by_role("link", name="Системные настройки").click()
+    page.locator("div:nth-child(3) > .col-sm-10 > .i-checks > .icheckbox_square-green > .iCheck-helper").first.click()
+    page.get_by_role("button", name="Сохранить").click()
+    page.get_by_role("link", name="Андрей Роднищев").click()
+    page.get_by_role("link", name="Выход").click()
+
+    # --- Основной тест смены почты и подтверждения ---
     base_email = "ast123@mailforspam.com"
     new_email = "ast1233@mailforspam.com"
 
-    # --- Вход ---
-    page.goto("http://lk.corp.dev.ru/Account/Login?returnUrl=%2FClientOrg")
+    # Вход под базовым пользователем
+    page.get_by_role("textbox", name="Email или Логин").click()
     page.get_by_role("textbox", name="Email или Логин").fill(base_email)
+    page.get_by_role("textbox", name="Пароль").click()
     page.get_by_role("textbox", name="Пароль").fill("1")
     page.get_by_role("button", name="Вход").click()
 
-    # --- Переход в профиль, смена на новую почту ---
-    page.get_by_role("link", name=" Мой ассистент ").click()
-    page.get_by_role("link", name=" Профиль").click()
-    page.get_by_role("link", name=base_email).nth(1).click()
+    # Переход в профиль, смена почты
+    page.get_by_role("link", name="Мой ассистент").click()
+    page.get_by_role("link", name="Профиль").click()
+    page.get_by_role("link", name=base_email).nth(0).click()
     page.locator("#Email").fill(new_email)
     page.get_by_role("button", name="Сохранить").click()
-
     expect(page.get_by_text("Введите код подтверждения")).to_be_visible(timeout=10000)
 
-    # --- Проверяем почту для подтверждения новой почты ---
+    # Проверяем почту для подтверждения новой почты
     mail_page = context.new_page()
     mail_page.goto(f"https://www.mailforspam.com/mail/{new_email.split('@')[0]}",
                    wait_until="domcontentloaded", timeout=15000)
-    mail_page.wait_for_timeout(3000)  # ждём доставку письма
+    mail_page.wait_for_timeout(3000)
     mail_page.reload(wait_until="domcontentloaded")
-
     mail_page.get_by_role("button", name="Check").click()
     mail_page.wait_for_selector('a:has-text("Подтверждение адреса электронной почты")', timeout=15000)
 
@@ -67,40 +83,36 @@ def test_change_email_and_confirm(page: Page, context):
             latest_email_index = i
 
     emails.nth(latest_email_index).click()
-
     mail_page.wait_for_selector('text=код подтверждения', timeout=10000)
     email_text = mail_page.content()
     match = re.search(r"код подтверждения (\d{3})", email_text)
     assert match, "Код подтверждения не найден в письме"
     code = match.group(1)
 
-    # --- Вводим код подтверждения ---
+    # Вводим код подтверждения
     page.bring_to_front()
     page.get_by_role("textbox", name="Введите код подтверждения").fill(code)
     page.get_by_role("button", name="Сохранить").click()
-
     expect(page.locator(".toast-message", has_text="Адрес электронной почты изменен")).to_be_visible(timeout=5000)
 
-    # --- Снова логинимся под новой почтой ---
+    # Логинимся под новой почтой
     page.get_by_role("textbox", name="Email или Логин").fill(new_email)
     page.get_by_role("textbox", name="Пароль").fill("1")
     page.get_by_role("button", name="Вход").click()
 
-    # --- Переход в профиль, обратная смена на старую почту ---
-    page.get_by_role("link", name="ast1233@mailforspam.com").click()
-    page.locator("#Email").click()           # Клик по полю для разблокировки
+    # Переход в профиль, смена обратно на старую почту
+    page.get_by_role("link", name=new_email).click()
+    page.locator("#Email").click()
     page.locator("#Email").fill(base_email)
     page.get_by_role("button", name="Сохранить").click()
-
     expect(page.get_by_text("Введите код подтверждения")).to_be_visible(timeout=10000)
 
-    # --- Проверяем почту для подтверждения обратной смены ---
+    # Проверяем почту для подтверждения обратной смены
     mail_page2 = context.new_page()
     mail_page2.goto(f"https://www.mailforspam.com/mail/{base_email.split('@')[0]}",
                     wait_until="domcontentloaded", timeout=15000)
     mail_page2.wait_for_timeout(3000)
     mail_page2.reload(wait_until="domcontentloaded")
-
     mail_page2.get_by_role("button", name="Check").click()
     mail_page2.wait_for_selector('a:has-text("Подтверждение адреса электронной почты")', timeout=15000)
 
@@ -119,16 +131,35 @@ def test_change_email_and_confirm(page: Page, context):
             latest_email_index2 = i
 
     emails2.nth(latest_email_index2).click()
-
     mail_page2.wait_for_selector('text=код подтверждения', timeout=10000)
     email_text2 = mail_page2.content()
     match2 = re.search(r"код подтверждения (\d{3})", email_text2)
     assert match2, "Код подтверждения не найден в письме"
     code2 = match2.group(1)
 
-    # --- Вводим код подтверждения ---
+    # Вводим код подтверждения обратной смены
     page.bring_to_front()
     page.get_by_role("textbox", name="Введите код подтверждения").fill(code2)
     page.get_by_role("button", name="Сохранить").click()
-
     expect(page.locator(".toast-message", has_text="Адрес электронной почты изменен")).to_be_visible(timeout=5000)
+
+    # --- В конце выход и повторный логин админом с переключением чекбокса ---
+    # Ждем появления элемента, затем кликаем по ссылке пользователя, иначе fallback — просто логин
+    try:
+        user_link = page.get_by_role("listitem").filter(has_text=f"{base_email} ast123")
+        user_link.get_by_role("link").wait_for(state="visible", timeout=10000)
+        user_link.get_by_role("link").click()
+    except Exception:
+        # Если элемент не найден, пропускаем к логину админа
+        print("Пользовательская ссылка не найдена, пропускаем к логину админа")
+
+
+    page.get_by_role("textbox", name="Email или Логин").click()
+    page.get_by_role("textbox", name="Email или Логин").fill("rodnischev@safib.ru")
+    page.get_by_role("textbox", name="Пароль").click()
+    page.get_by_role("textbox", name="Пароль").fill("1")
+    page.get_by_role("button", name="Вход").click()
+    page.get_by_role("link", name="Администрирование").click()
+    page.get_by_role("link", name="Системные настройки").click()
+    page.locator("div:nth-child(3) > .col-sm-10 > .i-checks > .icheckbox_square-green > .iCheck-helper").first.click()
+    page.get_by_role("button", name="Сохранить").click()

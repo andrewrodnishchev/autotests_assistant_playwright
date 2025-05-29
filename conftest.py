@@ -2,7 +2,7 @@ import pytest
 import time
 import os
 from typing import Optional
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Browser, Page, expect
 
 # Статистика тестов
 passed_tests = []
@@ -15,26 +15,32 @@ test_start_times = {}
 # ---------- Фикстура авторизации ----------
 
 @pytest.fixture
-def auth_page(page: Page) -> Page:
-    """Фикстура авторизации пользователя в системе."""
-    page.set_default_timeout(45_000)  # Установка глобального таймаута 45 секунд
-
-    page.goto("http://lk.corp.dev.ru/Account/Login?returnUrl=%2FClientOrg")
+def auth_page(browser: Browser) -> Page:
+    """Изолированная фикстура: авторизация в новом браузерном контексте."""
+    context = browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        screen={"width": 1920, "height": 1080}
+    )
+    page = context.new_page()
+    page.set_default_timeout(45_000)
 
     try:
+        page.goto("http://lk.corp.dev.ru/Account/Login?returnUrl=%2FClientOrg")
+
         page.get_by_role("textbox", name="Email или Логин").fill("rodnischev@safib.ru")
         page.get_by_role("textbox", name="Пароль").fill("1")
         page.get_by_role("button", name="Вход").click()
 
-        # Убедимся, что вошли (например, по наличию элемента интерфейса)
         expect(page).not_to_have_url("http://lk.corp.dev.ru/Account/Login", timeout=5000)
+
+        yield page
     except Exception as e:
         pytest.fail(f"Авторизация не удалась: {e}")
+    finally:
+        context.close()
 
-    return page
 
-
-# ---------- Параметры запуска браузера для fullscreen ----------
+# ---------- Параметры запуска браузера ----------
 
 @pytest.fixture(scope="session")
 def browser_type_launch_args():
@@ -64,14 +70,12 @@ def pytest_sessionstart(session):
 
 
 def pytest_runtest_protocol(item, nextitem):
-    """Сохраняем время начала теста."""
     test_name = item.nodeid
     test_start_times[test_name] = time.time()
-    return None  # продолжаем обычную обработку
+    return None
 
 
 def pytest_runtest_logreport(report):
-    """Обработка отчёта по каждому тесту."""
     if report.when != "call":
         return
 
@@ -103,7 +107,6 @@ def pytest_runtest_logreport(report):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Финальный вывод статистики."""
     session_end_time = time.time()
     total_duration = session_end_time - session_start_time
 

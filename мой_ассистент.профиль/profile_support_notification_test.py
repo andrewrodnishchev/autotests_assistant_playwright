@@ -6,8 +6,8 @@ def test_toggle_support_notifications(auth_page: Page):
     page = auth_page
 
     # Переход в профиль
-    page.get_by_role("link", name=" Мой ассистент ").click()
-    page.get_by_role("link", name=" Профиль").click()
+    page.get_by_role("link", name="Мой ассистент").click()
+    page.get_by_role("link", name="Профиль").click()
 
     # Переключаем настройку получения уведомлений
     page.get_by_role("insertion").click()

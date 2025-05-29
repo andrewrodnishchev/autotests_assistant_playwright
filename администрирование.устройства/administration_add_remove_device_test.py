@@ -15,8 +15,8 @@ def test_add_device_to_org(auth_page):
     page.get_by_role("button", name="Удалить").click()
 
     # Переход в администрирование
-    page.get_by_role("link", name=" Администрирование ").click()
-    page.get_by_role("link", name=" Устройства").click()
+    page.get_by_role("link", name="Администрирование").click()
+    page.get_by_role("link", name="Устройства").click()
 
     # Поиск устройства
     searchbox = page.get_by_role("searchbox", name="Поиск:")

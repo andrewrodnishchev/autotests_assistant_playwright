@@ -5,8 +5,8 @@ def test_send_message_to_device(auth_page):
     page = auth_page
 
     # Навигация в раздел устройств
-    page.get_by_role("link", name=" Администрирование ").click()
-    page.get_by_role("link", name=" Устройства").click()
+    page.get_by_role("link", name="Администрирование").click()
+    page.get_by_role("link", name="Устройства").click()
 
     # Поиск устройства по номеру
     searchbox = page.get_by_role("searchbox", name="Поиск:")

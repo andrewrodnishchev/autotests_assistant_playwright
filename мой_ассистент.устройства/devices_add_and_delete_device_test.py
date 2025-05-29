@@ -26,7 +26,7 @@ def test_add_device_with_duplicate_check(auth_page):
         page.get_by_role("link", name="Отмена").click()
 
         # Находим устройство в таблице (пример: по HID, текст "014 917")
-        device_cell = page.get_by_role("gridcell", name=" 014 917")
+        device_cell = page.get_by_role("gridcell", name="014 917 927")
         device_cell.locator("span").first.click(button="right")
 
         # Удаляем устройство
@@ -38,7 +38,7 @@ def test_add_device_with_duplicate_check(auth_page):
 
         # Добавляем снова
         page.get_by_role("link", name="Добавить устройство").click()
-        page.locator("#HID").fill("014917927")
+        page.locator("#HID").fill("014 917 927")
         page.get_by_role("button", name="Сохранить").click()
         page.get_by_role("button", name="Сохранить").click()
 

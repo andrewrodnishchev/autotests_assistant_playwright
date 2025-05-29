@@ -7,8 +7,8 @@ def test_export_system_log(auth_page, tmp_path):
     page = auth_page
 
     # Навигация в системный журнал
-    page.get_by_role("link", name=" Журналы и протоколы ").click()
-    page.get_by_role("link", name=" Системный журнал").click()
+    page.get_by_role("link", name="Журналы и протоколы").click()
+    page.get_by_role("link", name="Системный журнал").click()
     page.get_by_role("link", name="Выгрузить").click()
 
     # Ожидаем и сохраняем скачанный файл

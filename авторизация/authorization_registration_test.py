@@ -19,8 +19,8 @@ def test_register_new_user(base_email, playwright):
         page.get_by_role("textbox", name="Пароль").fill("1")
         page.get_by_role("button", name="Вход").click()
 
-        page.get_by_role("link", name=" Администрирование ").click()
-        page.get_by_role("link", name=" Системные настройки").click()
+        page.get_by_role("link", name="Администрирование").click()
+        page.get_by_role("link", name="Системные настройки").click()
 
         # Кликаем по чекбоксу настройки регистрации
         page.locator("div:nth-child(3) > .col-sm-10 > .i-checks > .icheckbox_square-green > .iCheck-helper").first.click()

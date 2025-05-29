@@ -6,8 +6,8 @@ def test_change_password(auth_page: Page):
     page = auth_page
 
     # Переход: Мой ассистент → Профиль → Безопасность
-    page.get_by_role("link", name=" Мой ассистент ").click()
-    page.get_by_role("link", name=" Профиль").click()
+    page.get_by_role("link", name="Мой ассистент").click()
+    page.get_by_role("link", name="Профиль").click()
     page.get_by_role("link", name="Безопасность").click()
     page.get_by_role("link", name="Изменить пароль").click()
 

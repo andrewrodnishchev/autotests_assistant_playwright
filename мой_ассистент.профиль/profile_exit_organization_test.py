@@ -13,14 +13,14 @@ def test_org_exit_and_reactivate(page: Page):
     page.goto("http://lk.corp.dev.ru/Account/Login?returnUrl=%2FClientOrg")
     login(page, "ast123@mailforspam.com")
 
-    page.get_by_role("link", name=" Мой ассистент ").click()
-    page.get_by_role("link", name=" Профиль").click()
+    page.get_by_role("link", name="Мой ассистент").click()
+    page.get_by_role("link", name="Профиль").click()
     page.get_by_role("link", name="Мои организации", exact=True).click()
     page.get_by_role("gridcell", name="тест андрей").click(button="right")
     page.get_by_role("link", name="Выйти из организации").click()
     page.get_by_role("button", name="Выйти").click()
     page.locator("div").filter(has_text="Вы успешно вышли из организации").nth(1).click()
-    page.get_by_role("link", name="ast123@mailforspam.com").click()
+    page.get_by_role("link", name="Андрей Роднищев").click()
     page.get_by_role("link", name="Выход").click()
 
     # Логин под rodnischev@safib.ru

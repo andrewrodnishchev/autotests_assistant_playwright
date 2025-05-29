@@ -7,8 +7,8 @@ def test_export_org_log(auth_page, tmp_path):
     page = auth_page
 
     # Навигация в журнал
-    page.get_by_role("link", name=" Журналы и протоколы ").click()
-    page.get_by_role("link", name=" Журнал организации").click()
+    page.get_by_role("link", name="Журналы и протоколы").click()
+    page.get_by_role("link", name="Журнал организации").click()
     page.get_by_role("link", name="Выгрузить").click()
 
     # Ожидаем загрузку
