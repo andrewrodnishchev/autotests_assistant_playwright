@@ -10,7 +10,7 @@ def test_data_collection_request(auth_page):
 
     page.get_by_role("link", name="Устройства").click()
     page.wait_for_timeout(500)
-    page.get_by_role("row", name="  014 917 927 c405-Andrey").get_by_role("checkbox").check()
+    page.get_by_role("row", name="014 917 927").get_by_role("checkbox").check()
     page.get_by_role("button", name="").click()
     page.wait_for_timeout(500)
     # Клик на кастомный селект, чтобы открыть список
@@ -29,6 +29,7 @@ def test_data_collection_request(auth_page):
 
     # Найти строку с "информация об устройстве"
     row = page.locator("tr", has=page.get_by_text("информация об устройстве"))
+    row.click()
     page.wait_for_timeout(500)
 
     # Кликнуть правой кнопкой по этой строке (если нужно)
@@ -52,20 +53,19 @@ def test_data_collection_request(auth_page):
 
     # Проверка сообщения об успешной отправке
     expect(page.locator("div.toast-message", has_text="Отправлен запрос сбора инвентаризации с устройств.")).to_be_visible(timeout=5000)
-    page.wait_for_timeout(500)
+    #page.wait_for_timeout(500)
 
-    # Массовая отправка (через чекбокс и кнопку)
-    # Найти строку, где есть нужный идентификатор устройства
-    row = page.locator("tr", has_text="014 917 927")
-    # Найти в этой строке checkbox и кликнуть по нему
-    page.wait_for_timeout(500)
+    #print(page.locator("tr", has_text="014 917 927").count())  # сколько строк
+    #print(page.locator("tr", has_text="014 917 927").locator("input.js-chk").count())  # сколько чекбоксов
 
-    page.locator("tr#580725 input.js-chk[type='checkbox']").click()
+
+    #page.locator("//tr[td[contains(., '014 917 927')]]//input[@type='checkbox']").click()
 
 
 
-    page.get_by_role("button", name="").click()  # кнопка с иконкой
-    page.wait_for_timeout(300)
 
-    page.get_by_role("button", name="Отправить").click()
-    page.wait_for_timeout(500)
+    #page.get_by_role("button", name="").click()  # кнопка с иконкой
+    #page.wait_for_timeout(300)
+
+    #page.get_by_role("button", name="Отправить").click()
+    #page.wait_for_timeout(500)
