@@ -3,12 +3,12 @@ import time
 from playwright.sync_api import expect
 
 
-@pytest.mark.parametrize("device_number", ["042 210 152"])
+@pytest.mark.parametrize("device_number", ["037 194 263"])
 def test_import_and_delete_device_from_ipa(auth_page, device_number):
     page = auth_page
     timeout = 10_000
     toast_import_success = "Успешно импортировано/обновлено 1 устройство"
-    toast_delete_success = "Приглашение удалено"
+    toast_delete_success = "Устройство удалено"
 
     # Переход к разделу "Устройства"
     page.get_by_role("link", name="тест андрей").click()
@@ -17,17 +17,13 @@ def test_import_and_delete_device_from_ipa(auth_page, device_number):
     # Открытие формы подключения
     page.get_by_role("link", name="").click()
 
-    # Открытие выпадающего списка (SumoSelect)
-    dropdown = page.locator(".SumoSelect.sumo_ADSystem")
-    dropdown.click()
-    time.sleep(1)  # на всякий случай, если выпадашка анимируется
-
-    # Выбор "IPA"
-    page.locator(".opt >> text=IPA").click()
+    # Выбор "IPA" в обычном <select>
+    page.locator("select#ADSystem").select_option("FreeIPA")
     time.sleep(0.5)
 
+
     # Заполнение данных подключения к IPA
-    page.locator("#ServerName").fill("ipa.local")
+    page.locator("#ServerName").fill("192.168.71.76")
     page.locator("#UN").fill("uid=savenko,cn=users,cn=accounts,dc=ipa,dc=local")
     page.locator("#Pwd").fill("12345678")
     page.locator("#BaseDN").fill("dc=ipa,dc=local")

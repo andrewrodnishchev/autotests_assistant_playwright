@@ -1,0 +1,31 @@
+ОТЧЕТ О ТЕСТИРОВАНИИ
+Дата/время: 2025-06-26 17:11:30
+Окружение: corp
+Общее время: 35.79 сек
+Система: Windows-10-10.0.19045-SP0
+Python: 3.13.3
+
+===== СТАТИСТИКА =====
+Всего тестов: 1
+Успешно: 0 (0.0%)
+Провалено: 1
+Пропущено: 0
+
+===== ДЕТАЛИ ТЕСТОВ =====
+✗ [35.24s] мой_ассистент.профиль/profile_change_email_test.py::test_change_email_and_confirm[chromium]
+   ОШИБКА: profile_change_email_test.py:74: in test_change_email_and_confirm
+    mail_page.goto(f"https://www.mailforspam.com/mail/{new_email.split('@')[0]}")
+..\venv\Lib\site-packages\playwright\sync_api\_generated.py:9024: in goto
+    self._sync(
+..\venv\Lib\site-packages\playwright\_impl\_page.py:552: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+..\venv\Lib\site-packages\playwright\_impl\_frame.py:145: in goto
+    await self._channel.send("goto", locals_to_params(locals()))
+..\venv\Lib\site-packages\playwright\_impl\_connection.py:61: in send
+    return await self._connection.wrap_api_call(
+..\venv\Lib\site-packages\playwright\_impl\_connection.py:528: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.TargetClosedError: Page.goto: Target page, context or browser has been closed
+E   Call log:
+E     - navigating to "https://www.mailforspam.com/mail/ast1233", waiting until "load"
+

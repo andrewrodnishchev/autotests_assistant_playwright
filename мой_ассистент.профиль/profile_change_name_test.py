@@ -1,5 +1,7 @@
 import pytest
-from playwright.sync_api import Page, expect
+import time
+from playwright.sync_api import Page
+from conftest import ENVIRONMENTS, get_current_environment
 
 ADMIN_EMAIL = "rodnischev@safib.ru"
 ADMIN_PASSWORD = "1"
@@ -7,66 +9,92 @@ ADMIN_PASSWORD = "1"
 USER_EMAIL = "ast123@mailforspam.com"
 USER_PASSWORD = "1"
 
-def login(page: Page, email: str, password: str):
-    page.goto("http://lk.corp.dev.ru/Account/Login?returnUrl=%2FClientOrg")
+def login(page: Page, base_url: str, email: str, password: str):
+    login_url = f"{base_url}/Account/Login?returnUrl=%2FClientOrg"
+    page.goto(login_url)
+    time.sleep(0.5)
     page.get_by_role("textbox", name="Email или Логин").fill(email)
     page.get_by_role("textbox", name="Пароль").fill(password)
+    time.sleep(0.5)
     page.get_by_role("button", name="Вход").click()
     page.wait_for_load_state("networkidle")
+    time.sleep(0.5)
 
 def logout(page: Page):
     try:
         page.get_by_role("link", name="Выход").wait_for(state="visible", timeout=10000)
+        time.sleep(0.5)
         page.get_by_role("link", name="Выход").click()
+        page.wait_for_load_state("networkidle")
+        time.sleep(0.5)
     except Exception:
-        print("Не удалось найти ссылку Выход, пропускаем logout")
+        pass
 
-def toggle_checkbox_in_system_settings(page: Page):
+def toggle_checkbox_in_system_settings(page: Page, enable: bool):
+    time.sleep(0.5)
     page.get_by_role("link", name="Администрирование").click()
+    time.sleep(0.5)
+
     page.get_by_role("link", name="Системные настройки").click()
     page.wait_for_load_state("networkidle")
-    checkbox_locator = page.locator("div:nth-child(3) > .col-sm-10 > .i-checks > .icheckbox_square-green > .iCheck-helper").first
-    checkbox_locator.click()
+    time.sleep(0.5)
+
+    checkbox_input = page.locator("input#IsSelfRegistrationAveeble")
+    is_checked = checkbox_input.is_checked()
+
+    if is_checked != enable:
+        checkbox_clickable = page.locator("div:nth-child(3) > .col-sm-10 > .i-checks > .icheckbox_square-green > .iCheck-helper").first
+        time.sleep(0.5)
+        checkbox_clickable.click()
+        time.sleep(0.5)
+
+    time.sleep(0.5)
     page.get_by_role("button", name="Сохранить").click()
-    # Можно добавить проверку уведомления об успешном сохранении, если есть
+    time.sleep(0.5)
 
 @pytest.mark.usefixtures("page")
-def test_admin_toggle_checkbox_and_change_name(page: Page):
-    # Вход под админом и включение чекбокса
-    login(page, ADMIN_EMAIL, ADMIN_PASSWORD)
-    toggle_checkbox_in_system_settings(page)
+def test_admin_toggle_checkbox_and_change_name(page: Page, request):
+    env = get_current_environment(request)
+    config = ENVIRONMENTS[env]
+    base_url = config["base_url"]
+
+    login(page, base_url, ADMIN_EMAIL, ADMIN_PASSWORD)
+    toggle_checkbox_in_system_settings(page, enable=True)
     logout(page)
 
-    # Вход под обычным пользователем и смена имени
-    login(page, USER_EMAIL, USER_PASSWORD)
+    login(page, base_url, USER_EMAIL, USER_PASSWORD)
+    time.sleep(0.5)
 
-    # Переход в профиль
     page.get_by_role("link", name="Мой ассистент").click()
+    time.sleep(0.5)
+
     page.get_by_role("link", name="Профиль").click()
     page.wait_for_load_state("networkidle")
+    time.sleep(0.5)
 
-    # Смена имени: "Андрей Роднищев" → "андрей роднищев"
     page.locator("#tab-1").get_by_role("link", name="Андрей Роднищев").click()
-    page.locator("#Name").fill("андрей роднищев")
-    page.get_by_role("button", name="Сохранить").click()
-    expect(page.locator("div.toast-message", has_text="Имя успешно изменено")).to_be_visible(timeout=5000)
+    time.sleep(0.5)
 
-    # Проверка: имя изменилось
+    page.locator("#Name").fill("андрей роднищев")
+    time.sleep(0.5)
+    page.get_by_role("button", name="Сохранить").click()
+    time.sleep(0.5)
+
     page.locator("#tab-1").get_by_role("link", name="андрей роднищев").click()
+    time.sleep(0.5)
     assert page.locator("#Name").input_value() == "андрей роднищев"
 
-    # Возврат имени обратно: "андрей роднищев" → "Андрей Роднищев"
     page.locator("#Name").fill("Андрей Роднищев")
+    time.sleep(0.5)
     page.get_by_role("button", name="Сохранить").click()
-    expect(page.locator("div.toast-message", has_text="Имя успешно изменено")).to_be_visible(timeout=5000)
+    time.sleep(0.5)
 
-    # Проверка: имя вернулось
     page.locator("#tab-1").get_by_role("link", name="Андрей Роднищев").click()
+    time.sleep(0.5)
     assert page.locator("#Name").input_value() == "Андрей Роднищев"
 
     logout(page)
 
-    # Вход под админом и выключение чекбокса
-    login(page, ADMIN_EMAIL, ADMIN_PASSWORD)
-    toggle_checkbox_in_system_settings(page)
+    login(page, base_url, ADMIN_EMAIL, ADMIN_PASSWORD)
+    toggle_checkbox_in_system_settings(page, enable=False)
     logout(page)

@@ -78,7 +78,8 @@ def test_change_access_policy(auth_page):
     policy_select.click()
     page.wait_for_timeout(500)
 
-    option = policy_select.locator("li.opt label", has_text="Базовая")
+    # Явный выбор первого варианта с текстом "Базовая"
+    option = policy_select.locator("li.opt label", has_text="Базовая").first
     expect(option).to_be_visible(timeout=3000)
     option.click()
     page.wait_for_timeout(500)

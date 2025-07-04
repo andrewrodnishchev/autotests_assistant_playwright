@@ -12,7 +12,11 @@ def test_edit_and_revert_device_group_name(auth_page):
     page.get_by_role("link", name="Устройства").click()
 
     # Просмотр и редактирование группы "тест 1"
-    page.get_by_role("row", name="тест 1 ").locator("i").click()
+    # 1. Ищем нужную строку (где ячейка точно содержит "тест 1" — без подстрок)
+    row = page.locator('tr').filter(has=page.locator('td')).filter(has_text="тест 1").nth(0)
+
+    # 2. В этой строке кликаем по action-кнопке
+    row.locator('div.action-link').click()
     page.get_by_role("link", name="Просмотр").click()
     page.get_by_role("link", name="Изменить").click()
     page.locator("#Name").click()
@@ -27,7 +31,12 @@ def test_edit_and_revert_device_group_name(auth_page):
     page.get_by_role("link", name="Назад").click()
 
     # Проверка переименованной строки "тест 1.1"
-    page.get_by_role("row", name="тест 1.1 ").locator("i").click()
+    # 1. Ищем нужную строку (где ячейка точно содержит "тест 1" — без подстрок)
+    row = page.locator('tr').filter(has=page.locator('td')).filter(has_text="тест 1.1").nth(0)
+
+    # 2. В этой строке кликаем по action-кнопке
+    row.locator('div.action-link').click()
+
     page.get_by_role("link", name="Просмотр").click()
     page.get_by_role("link", name="Изменить").click()
     page.locator("#Name").click()

@@ -1,0 +1,25 @@
+ОТЧЕТ О ТЕСТИРОВАНИИ
+Дата/время: 2025-06-30 14:50:55
+Окружение: corp
+Общее время: 16.21 сек
+Система: Windows-10-10.0.19045-SP0
+Python: 3.13.3
+
+===== СТАТИСТИКА =====
+Всего тестов: 1
+Успешно: 0 (0.0%)
+Провалено: 1
+Пропущено: 0
+
+===== ДЕТАЛИ ТЕСТОВ =====
+✗ [15.24s] мой_ассистент.профиль/profile_change_name_test.py::test_admin_toggle_checkbox_and_change_name[chromium]
+   ОШИБКА: profile_change_name_test.py:51: in test_admin_toggle_checkbox_and_change_name
+    set_checkbox_state(page, True)
+profile_change_name_test.py:36: in set_checkbox_state
+    expect(page.locator(".toast-message", has_text="Настройки сохранены")).to_be_visible(timeout=5000)
+E   AssertionError: Locator expected to be visible
+E   Actual value: <element(s) not found> 
+E   Call log:
+E     - LocatorAssertions.to_be_visible with timeout 5000ms
+E     - waiting for locator(".toast-message").filter(has_text="Настройки сохранены")
+

@@ -3,12 +3,12 @@ from playwright.sync_api import expect
 import time
 
 
-@pytest.mark.parametrize("device_number", ["064 735 722"])
+@pytest.mark.parametrize("device_number", ["051 238 713"])
 def test_import_and_delete_device_from_ad(auth_page, device_number):
     page = auth_page
     timeout = 10_000
     toast_import_success = "Успешно импортировано/обновлено 1 устройство"
-    toast_delete_success = "Приглашение удалено"
+    toast_delete_success = "Устройство удалено"
 
     # Переход к разделу "Устройства"
     page.get_by_role("link", name="тест андрей").click()
@@ -37,7 +37,7 @@ def test_import_and_delete_device_from_ad(auth_page, device_number):
     page.wait_for_timeout(2000)
 
     # Выбор устройства
-    checkbox = page.get_by_role("row", name=f"REDOS7  {device_number}").get_by_role("checkbox")
+    checkbox = page.get_by_role("row", name=f"{device_number}").get_by_role("checkbox")
     checkbox.click()
 
     # Импорт устройства

@@ -1,0 +1,23 @@
+ОТЧЕТ О ТЕСТИРОВАНИИ
+Дата/время: 2025-06-26 16:55:03
+Окружение: corp
+Общее время: 31.17 сек
+Система: Windows-10-10.0.19045-SP0
+Python: 3.13.3
+
+===== СТАТИСТИКА =====
+Всего тестов: 1
+Успешно: 0 (0.0%)
+Провалено: 1
+Пропущено: 0
+
+===== ДЕТАЛИ ТЕСТОВ =====
+✗ [24.63s] мой_ассистент.профиль/profile_activate_license_test.py::test_activate_and_cancel_license[chromium]
+   ОШИБКА: profile_activate_license_test.py:58: in test_activate_and_cancel_license
+    expect(page.locator("div.toast-message", has_text="Лицензия успешно активирована")).to_be_visible(timeout=5000)
+E   AssertionError: Locator expected to be visible
+E   Actual value: <element(s) not found> 
+E   Call log:
+E     - LocatorAssertions.to_be_visible with timeout 5000ms
+E     - waiting for locator("div.toast-message").filter(has_text="Лицензия успешно активирована")
+

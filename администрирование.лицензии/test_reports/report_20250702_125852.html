@@ -1,0 +1,295 @@
+
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Отчет о тестировании</title>
+        <style>
+            :root {
+                --primary: #3498db;
+                --success: #2ecc71;
+                --danger: #e74c3c;
+                --warning: #f39c12;
+                --light: #f8f9fa;
+                --dark: #343a40;
+            }
+            
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                background-color: #f9f9f9;
+                margin: 0;
+                padding: 20px;
+            }
+            
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 10px;
+                box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+            }
+            
+            header {
+                background: linear-gradient(135deg, #2c3e50, #4a6491);
+                color: white;
+                padding: 30px 40px;
+                text-align: center;
+            }
+            
+            h1 {
+                font-size: 2.5rem;
+                margin-bottom: 10px;
+            }
+            
+            .summary {
+                display: flex;
+                justify-content: space-between;
+                padding: 20px 40px;
+                background-color: #f0f4f8;
+                border-bottom: 1px solid #ddd;
+            }
+            
+            .summary-item {
+                text-align: center;
+            }
+            
+            .summary-item h3 {
+                font-size: 1.2rem;
+                color: #555;
+                margin-bottom: 5px;
+            }
+            
+            .summary-item .value {
+                font-size: 1.8rem;
+                font-weight: bold;
+            }
+            
+            .stats-cards {
+                display: flex;
+                justify-content: center;
+                gap: 20px;
+                padding: 30px;
+                flex-wrap: wrap;
+            }
+            
+            .stat-card {
+                flex: 1;
+                min-width: 200px;
+                padding: 25px;
+                border-radius: 10px;
+                text-align: center;
+                color: white;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            }
+            
+            .stat-card.total { background: linear-gradient(135deg, #3498db, #0D47A1); }
+            .stat-card.passed { background: linear-gradient(135deg, #2ecc71, #2E7D32); }
+            .stat-card.failed { background: linear-gradient(135deg, #e74c3c, #C62828); }
+            .stat-card.skipped { background: linear-gradient(135deg, #f39c12, #E65100); }
+            
+            .stat-card h3 {
+                font-size: 2.5rem;
+                margin-bottom: 10px;
+            }
+            
+            .progress-bar {
+                height: 20px;
+                background-color: #e0e0e0;
+                border-radius: 10px;
+                overflow: hidden;
+                margin: 20px 40px;
+            }
+            
+            .progress {
+                height: 100%;
+                background: linear-gradient(90deg, #2ecc71, #2ecc71);
+                width: 0.0%;
+            }
+            
+            .details {
+                padding: 30px 40px;
+            }
+            
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 20px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            }
+            
+            th, td {
+                padding: 15px 20px;
+                text-align: left;
+                border-bottom: 1px solid #ddd;
+            }
+            
+            th {
+                background-color: #2c3e50;
+                color: white;
+                font-weight: 600;
+                text-transform: uppercase;
+                font-size: 0.9rem;
+            }
+            
+            tr:nth-child(even) {
+                background-color: #f8f9fa;
+            }
+            
+            tr:hover {
+                background-color: #eef7ff;
+            }
+            
+            .passed-row { border-left: 5px solid #2ecc71; }
+            .failed-row { border-left: 5px solid #e74c3c; }
+            .skipped-row { border-left: 5px solid #f39c12; }
+            
+            .status {
+                display: inline-block;
+                padding: 5px 12px;
+                border-radius: 20px;
+                font-weight: 600;
+                font-size: 0.85rem;
+                text-transform: uppercase;
+            }
+            
+            .status.passed { background-color: #e8f5e9; color: #2ecc71; }
+            .status.failed { background-color: #ffebee; color: #e74c3c; }
+            .status.skipped { background-color: #fff3e0; color: #f39c12; }
+            
+            .error-details {
+                background-color: #fff5f5;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 10px;
+                font-family: 'Consolas', monospace;
+                white-space: pre-wrap;
+                font-size: 0.9rem;
+                line-height: 1.4;
+                color: #c00;
+            }
+            
+            .skip-details {
+                background-color: #fff8e1;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 10px;
+                font-family: 'Consolas', monospace;
+                white-space: pre-wrap;
+                font-size: 0.9rem;
+                line-height: 1.4;
+                color: #e65100;
+            }
+            
+            .screenshot-link {
+                display: inline-block;
+                margin-top: 10px;
+                padding: 8px 15px;
+                background-color: #e3f2fd;
+                color: #1565c0;
+                border-radius: 4px;
+                text-decoration: none;
+                font-weight: 500;
+                transition: background 0.2s;
+            }
+            
+            .screenshot-link:hover {
+                background-color: #bbdefb;
+            }
+            
+            footer {
+                text-align: center;
+                padding: 20px;
+                color: #777;
+                font-size: 0.9rem;
+                border-top: 1px solid #ddd;
+                background-color: #f8f9fa;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>Отчет о тестировании</h1>
+                <p class="subtitle">Playwright + Pytest</p>
+            </header>
+            
+            <section class="summary">
+                <div class="summary-item">
+                    <h3>Дата и время</h3>
+                    <p class="value">2025-07-02 12:58:52</p>
+                </div>
+                <div class="summary-item">
+                    <h3>Окружение</h3>
+                    <p class="value">corp</p>
+                </div>
+                <div class="summary-item">
+                    <h3>Общее время</h3>
+                    <p class="value">14.64 сек</p>
+                </div>
+            </section>
+            
+            <section class="stats-cards">
+                <div class="stat-card total">
+                    <h3>1</h3>
+                    <p>Всего тестов</p>
+                </div>
+                <div class="stat-card passed">
+                    <h3>0</h3>
+                    <p>Пройдено</p>
+                </div>
+                <div class="stat-card failed">
+                    <h3>1</h3>
+                    <p>Провалено</p>
+                </div>
+                <div class="stat-card skipped">
+                    <h3>0</h3>
+                    <p>Пропущено</p>
+                </div>
+            </section>
+            
+            <div class="progress-bar">
+                <div class="progress"></div>
+            </div>
+            
+            <section class="details">
+                <h2>Детали выполнения тестов</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Тест</th>
+                            <th>Статус</th>
+                            <th>Длительность</th>
+                            <th>Детали</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="failed-row"><td>1</td><td>test_create_edit_delete_license[chromium]</td><td><span class="status failed">FAILED</span></td><td>7.15 сек</td><td><div class="error-details">administration_add_remove_license_test.py:20: in test_create_edit_delete_license
+    expect(page.locator("div").filter(has_text="Лицензия успешно создана").nth(1)).to_be_visible(timeout=5000)
+E   AssertionError: Locator expected to be visible
+E   Actual value: <element(s) not found> 
+E   Call log:
+E     - LocatorAssertions.to_be_visible with timeout 5000ms
+E     - waiting for locator("div").filter(has_text="Лицензия успешно создана").nth(1)</div></td></tr>
+                    </tbody>
+                </table>
+            </section>
+            
+            <footer>
+                <p>Сгенерировано автоматически с помощью Playwright и Pytest</p>
+                <p>Время генерации: 2025-07-02 12:58:52</p>
+            </footer>
+        </div>
+    </body>
+    </html>
+    

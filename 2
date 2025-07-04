@@ -1,0 +1,684 @@
+import pytest
+import time
+import os
+import platform
+import sys
+from typing import Dict, Any, List, Optional
+from playwright.sync_api import Browser, Page, expect
+
+# ---------- Конфигурация окружений ----------
+ENVIRONMENTS: Dict[str, Dict[str, Any]] = {
+    'corp': {
+        'base_url': 'http://lk.corp.dev.ru',
+        'login': 'rodnischev@safib.ru',
+        'password': '1',
+        'timeout': 45000
+    },
+    'setup': {
+        'base_url': 'http://office.setuplk.ru',
+        'login': 'rodnischev@safib.ru',
+        'password': '1',
+        'timeout': 45000
+    }
+}
+
+# ---------- Глобальные переменные ----------
+REPORTS_DIR = "test_reports"
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+class TestState:
+    def __init__(self):
+        self.passed_tests: List[str] = []
+        self.failed_tests: List[str] = []
+        self.skipped_tests: List[str] = []
+        self.test_durations: Dict[str, float] = {}
+        self.test_start_times: Dict[str, float] = {}
+        self.session_start_time: float = 0
+        self.report_data: Optional[Dict[str, Any]] = None
+        self.total_tests = 0
+        self.completed_tests = 0
+        self.config = None
+        self.test_status_history: List[str] = []  # История статусов тестов
+
+test_state = TestState()
+
+# ---------- Цвета для консоли ----------
+class Colors:
+    HEADER = "\033[95m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+    WHITE = "\033[97m"
+    GRAY = "\033[90m"
+    YELLOW = "\033[93m"
+
+# ---------- Вывод результата теста ----------
+def print_test_result(test_name: str, status: str, duration: float, completed: int, total: int):
+    """Выводит результат выполнения теста с прогресс-баром"""
+    length = 50
+
+    # Сохраняем статус текущего теста
+    test_state.test_status_history.append(status)
+
+    # Цвет и иконка статуса
+    if status == "passed":
+        color = Colors.GREEN
+        status_icon = "✓"
+    elif status == "failed":
+        color = Colors.RED
+        status_icon = "✘"
+    else:  # skipped or other
+        color = Colors.YELLOW
+        status_icon = "↷"
+
+    # Строим прогресс-бар на основе истории статусов
+    bar_parts = []
+    for i, test_status in enumerate(test_state.test_status_history):
+        if i >= length:  # Ограничиваем длину прогресс-бара
+            break
+
+        if test_status == "passed":
+            bar_parts.append(f"{Colors.GREEN}█")
+        elif test_status == "failed":
+            bar_parts.append(f"{Colors.RED}█")
+        else:  # skipped
+            bar_parts.append(f"{Colors.YELLOW}█")
+
+    # Добавляем невыполненные тесты
+    remaining = length - len(bar_parts)
+    if remaining > 0:
+        bar_parts.append(f"{Colors.CYAN}{'░' * remaining}")
+
+    bar = "".join(bar_parts) + Colors.RESET
+
+    # Формируем строку вывода
+    test_line = (
+        f"Тест {completed}/{total} |{bar}| "
+        f"{color}{status_icon} {test_name.split('::')[-1][:40]}{Colors.RESET} "
+        f"({duration:.2f} сек)"
+    )
+
+    print(test_line)
+
+# ---------- Основные фикстуры ----------
+@pytest.fixture(scope="session")
+def browser_type_launch_args() -> Dict[str, Any]:
+    return {
+        "headless": False,
+        "args": ["--start-fullscreen"],
+        "slow_mo": int(os.getenv("SLOWMO", "0"))
+    }
+
+@pytest.fixture(scope="session")
+def browser_context_args() -> Dict[str, Any]:
+    return {
+        "viewport": {"width": 1920, "height": 1080},
+        "screen": {"width": 1920, "height": 1080}
+    }
+
+@pytest.fixture
+def auth_page(browser: Browser, request: pytest.FixtureRequest) -> Page:
+    env = get_current_environment(request)
+    config = ENVIRONMENTS[env]
+
+    context = browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        screen={"width": 1920, "height": 1080}
+    )
+    page = context.new_page()
+    page.set_default_timeout(config['timeout'])
+
+    try:
+        login_url = f"{config['base_url']}/Account/Login?returnUrl=%2FClientOrg"
+        page.goto(login_url)
+
+        locator = page.get_by_role("textbox", name="Email или Логин")
+        if not locator.is_visible(timeout=2000):
+            locator = page.get_by_role("textbox", name="Email")
+
+        locator.fill(config['login'])
+        page.get_by_role("textbox", name="Пароль").fill(config['password'])
+        page.get_by_role("button", name="Вход").click()
+        expect(page).not_to_have_url(login_url, timeout=5000)
+        yield page
+    except Exception as e:
+        # Определяем, было ли принудительное закрытие браузера
+        is_browser_closed = any(
+            msg in str(e)
+            for msg in ["Target closed", "Context closed", "Browser closed", "Connection refused"]
+        )
+
+        if is_browser_closed:
+            # Добавляем специальный маркер в имя файла для пропущенных тестов
+            screenshot_path = os.path.join(REPORTS_DIR, f"skipped_{time.strftime('%H%M%S')}.png")
+            try:
+                # Пытаемся сделать скриншот перед выходом
+                if not page.is_closed():
+                    page.screenshot(path=screenshot_path, full_page=True)
+                pytest.skip(f"Тест прерван пользователем (браузер закрыт). Скриншот: {screenshot_path}")
+            except:
+                pytest.skip("Тест прерван пользователем (браузер закрыт)")
+        else:
+            screenshot_path = os.path.join(REPORTS_DIR, f"error_{time.strftime('%H%M%S')}.png")
+            try:
+                page.screenshot(path=screenshot_path, full_page=True)
+                pytest.fail(f"Ошибка теста ({env}): {str(e)[:200]}...\nСкриншот: {screenshot_path}")
+            except:
+                pytest.fail(f"Ошибка теста ({env}): {str(e)[:200]}")
+    finally:
+        try:
+            context.close()
+        except:
+            pass  # Уже закрыт
+
+# ---------- Вспомогательные функции ----------
+def get_current_environment(request: pytest.FixtureRequest) -> str:
+    env_marker = request.node.get_closest_marker("environment")
+    if env_marker and len(env_marker.args) > 0 and env_marker.args[0] in ENVIRONMENTS:
+        return env_marker.args[0]
+
+    env_arg = request.config.getoption("--env")
+    if env_arg and env_arg in ENVIRONMENTS:
+        return env_arg
+
+    return 'corp'
+
+def get_system_info() -> Dict[str, str]:
+    return {
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "processor": platform.processor(),
+        "system_time": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+# ---------- Хуки pytest ----------
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--env", choices=list(ENVIRONMENTS.keys()), default='corp',
+        help="Выбор окружения для тестов: corp или setup"
+    )
+    parser.addoption(
+        "--report-format", choices=["html", "none"], default="html",
+        help="Формат отчета: html или none"
+    )
+    parser.addoption(
+        "--screenshots", action="store_true", default=False,
+        help="Сохранять скриншоты для упавших тестов"
+    )
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.option.progress = 'no'
+    config.option.verbose = 0
+    config.option.quiet = True
+
+    test_state.config = config
+    test_state.report_data = {
+        "env": config.getoption("--env"),
+        "start_time": time.time(),
+        "system": get_system_info(),
+        "tests": [],
+        "stats": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total": 0
+        },
+        "screenshots": {}
+    }
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    test_state.session_start_time = time.time()
+    print(f"\n{Colors.BLUE}╔════════════════════════╗")
+    print(f"║ {Colors.BOLD}{Colors.WHITE}🚀 НАЧАЛО ТЕСТИРОВАНИЯ {Colors.RESET}{Colors.BLUE}║")
+    print(f"╚════════════════════════╝{Colors.RESET}\n")
+
+def pytest_collection_modifyitems(session: pytest.Session, config: pytest.Config, items: List[pytest.Item]) -> None:
+    test_state.total_tests = len(items)
+    test_state.completed_tests = 0
+    print(f"{Colors.CYAN}• Всего тестов: {test_state.total_tests}{Colors.RESET}")
+    print(f"{Colors.CYAN}• Окружение: {config.getoption('--env')}{Colors.RESET}")
+    print(f"{Colors.CYAN}• Отчет: {config.getoption('--report-format')}{Colors.RESET}\n")
+    print(f"{Colors.GRAY}{'─' * 80}{Colors.RESET}")
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    if not test_state.report_data:
+        return
+
+    test_name = report.nodeid.split("::")[-1]
+
+    if test_name not in test_state.test_start_times:
+        test_state.test_start_times[test_name] = time.time()
+
+    duration = time.time() - test_state.test_start_times.get(test_name, time.time())
+    test_state.test_durations[test_name] = duration
+
+    if report.when == "call":
+        test_state.completed_tests += 1
+
+    test_data = {
+        "name": test_name,
+        "duration": duration,
+        "status": report.outcome,
+        "error": str(report.longrepr) if report.longrepr else None,
+        "screenshot": None,
+        "when": report.when
+    }
+
+    if report.when == "call":
+        if report.failed:
+            test_state.failed_tests.append(test_name)
+            test_state.report_data["stats"]["failed"] += 1
+            # Ищем скриншот в имени ошибки
+            if report.longrepr and "Скриншот:" in str(report.longrepr):
+                test_data["screenshot"] = str(report.longrepr).split("Скриншот:")[-1].strip()
+
+        elif report.passed:
+            test_state.passed_tests.append(test_name)
+            test_state.report_data["stats"]["passed"] += 1
+        elif report.skipped:
+            test_state.skipped_tests.append(test_name)
+            test_state.report_data["stats"]["skipped"] += 1
+            # Ищем скриншот для пропущенных тестов
+            if report.longrepr and "Скриншот:" in str(report.longrepr):
+                test_data["screenshot"] = str(report.longrepr).split("Скриншот:")[-1].strip()
+
+        test_state.report_data["stats"]["total"] += 1
+        test_state.report_data["tests"].append(test_data)
+
+        print_test_result(
+            test_name=report.nodeid,
+            status=report.outcome,
+            duration=duration,
+            completed=test_state.completed_tests,
+            total=test_state.total_tests
+        )
+
+        if report.failed:
+            print(f"{Colors.RED}   Ошибка: {str(report.longrepr).split('\n')[0][:200]}...{Colors.RESET}")
+            if test_data.get("screenshot"):
+                print(f"{Colors.BLUE}   Скриншот: {test_data['screenshot']}{Colors.RESET}")
+        elif report.skipped:
+            print(f"{Colors.YELLOW}   Причина: {str(report.longrepr).split('\n')[0][:200]}...{Colors.RESET}")
+            if test_data.get("screenshot"):
+                print(f"{Colors.BLUE}   Скриншот: {test_data['screenshot']}{Colors.RESET}")
+
+        print(f"{Colors.GRAY}   {'─' * 76}{Colors.RESET}")
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    test_name = item.nodeid.split("::")[-1]
+    test_state.test_start_times[test_name] = time.time()
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: pytest.ExitCode) -> None:
+    if not test_state.report_data:
+        return
+
+    total_duration = time.time() - test_state.session_start_time
+    test_state.report_data["total_duration"] = total_duration
+    test_state.report_data["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    total = test_state.report_data["stats"]["total"]
+    passed = test_state.report_data["stats"]["passed"]
+    passed_percent = round((passed / total) * 100, 1) if total > 0 else 0
+    test_state.report_data["stats"]["passed_percent"] = passed_percent
+
+    if test_state.config.getoption("--report-format") == "html":
+        generate_html_report(test_state.report_data)
+        report_files = [f for f in os.listdir(REPORTS_DIR) if f.startswith("report_") and f.endswith(".html")]
+        if report_files:
+            report_file = report_files[-1]
+            print(f"\n{Colors.BLUE}• Отчет сохранен: {os.path.join(REPORTS_DIR, report_file)}{Colors.RESET}")
+
+    print(f"\n{Colors.BLUE}╔═══════════════════════╗")
+    print(f"║ {Colors.BOLD}{Colors.WHITE}📊 ИТОГИ ТЕСТИРОВАНИЯ {Colors.RESET}{Colors.BLUE}║")
+    print(f"╚═══════════════════════╝{Colors.RESET}")
+
+    print(f"{Colors.CYAN}┌{'─' * 78}┐{Colors.RESET}")
+    print(f"{Colors.CYAN}│ {Colors.BOLD}Всего тестов:{Colors.RESET} {total}{' ' * (62 - len(str(total)))}│")
+    print(f"{Colors.CYAN}│ {Colors.GREEN}✓ Пройдено:  {Colors.RESET}{passed} ({passed_percent}%){' ' * (60 - len(f'{passed} ({passed_percent}%)'))} │")
+    print(f"{Colors.CYAN}│ {Colors.RED}✘ Провалено: {Colors.RESET}{test_state.report_data['stats']['failed']}{' ' * (62 - len(str(test_state.report_data['stats']['failed'])))}   │")
+    print(f"{Colors.CYAN}│ {Colors.YELLOW}↷ Пропущено: {Colors.RESET}{test_state.report_data['stats']['skipped']}{' ' * (62 - len(str(test_state.report_data['stats']['skipped'])))} │")
+    print(f"{Colors.CYAN}│ {Colors.BOLD}Общее время:{Colors.RESET} {total_duration:.2f} сек{' ' * (60 - len(f'{total_duration:.2f} сек'))} │")
+    print(f"{Colors.CYAN}│ {Colors.BOLD}Окружение: {Colors.RESET}{test_state.report_data['env']}{' ' * (62 - len(test_state.report_data['env']))}   │")
+    print(f"{Colors.CYAN}└{'─' * 78}┘{Colors.RESET}")
+
+    if test_state.failed_tests:
+        print(f"\n{Colors.RED}╔═════════════════════╗")
+        print(f"║ {Colors.BOLD}{Colors.WHITE}❌ ПРОВАЛЕННЫЕ ТЕСТЫ {Colors.RESET}{Colors.RED}║")
+        print(f"╚═════════════════════╝{Colors.RESET}")
+
+        for name in test_state.failed_tests:
+            test_data = next((t for t in test_state.report_data["tests"] if t["name"] == name and t["when"] == "call"), {})
+            print(f"\n{Colors.RED}✘ {name}{Colors.RESET}")
+            if test_data.get("error"):
+                print(f"{Colors.GRAY}   Ошибка: {test_data['error'].split('\n')[0][:200]}...{Colors.RESET}")
+            if test_data.get("screenshot"):
+                print(f"{Colors.BLUE}   Скриншот: {test_data['screenshot']}{Colors.RESET}")
+            print(f"{Colors.GRAY}{'─' * 80}{Colors.RESET}")
+
+    if test_state.skipped_tests:
+        print(f"\n{Colors.YELLOW}╔════════════════════════════╗")
+        print(f"║ {Colors.BOLD}{Colors.WHITE}⚠ ПРОПУЩЕННЫЕ ТЕСТЫ {Colors.RESET}{Colors.YELLOW}║")
+        print(f"╚════════════════════════════╝{Colors.RESET}")
+
+        for name in test_state.skipped_tests:
+            test_data = next((t for t in test_state.report_data["tests"] if t["name"] == name and t["when"] == "call"), {})
+            print(f"\n{Colors.YELLOW}↷ {name}{Colors.RESET}")
+            if test_data.get("error"):
+                print(f"{Colors.GRAY}   Причина: {test_data['error'].split('\n')[0][:200]}...{Colors.RESET}")
+            print(f"{Colors.GRAY}{'─' * 80}{Colors.RESET}")
+
+    print(f"\n{Colors.BLUE}╔══════════════════════════╗")
+    print(f"║ {Colors.BOLD}{Colors.WHITE}✅ ТЕСТИРОВАНИЕ ЗАВЕРШЕНО {Colors.RESET}{Colors.BLUE}║")
+    print(f"╚══════════════════════════╝{Colors.RESET}\n")
+
+# ---------- Генератор HTML отчета ----------
+def generate_html_report(report_data: Dict[str, Any]) -> None:
+    filename = os.path.join(REPORTS_DIR, f"report_{time.strftime('%Y%m%d_%H%M%S')}.html")
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Отчет о тестировании</title>
+        <style>
+            :root {{
+                --primary: #3498db;
+                --success: #2ecc71;
+                --danger: #e74c3c;
+                --warning: #f39c12;
+                --light: #f8f9fa;
+                --dark: #343a40;
+            }}
+
+            * {{
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }}
+
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                background-color: #f9f9f9;
+                margin: 0;
+                padding: 20px;
+            }}
+
+            .container {{
+                max-width: 1200px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 10px;
+                box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+            }}
+
+            header {{
+                background: linear-gradient(135deg, #2c3e50, #4a6491);
+                color: white;
+                padding: 30px 40px;
+                text-align: center;
+            }}
+
+            h1 {{
+                font-size: 2.5rem;
+                margin-bottom: 10px;
+            }}
+
+            .summary {{
+                display: flex;
+                justify-content: space-between;
+                padding: 20px 40px;
+                background-color: #f0f4f8;
+                border-bottom: 1px solid #ddd;
+            }}
+
+            .summary-item {{
+                text-align: center;
+            }}
+
+            .summary-item h3 {{
+                font-size: 1.2rem;
+                color: #555;
+                margin-bottom: 5px;
+            }}
+
+            .summary-item .value {{
+                font-size: 1.8rem;
+                font-weight: bold;
+            }}
+
+            .stats-cards {{
+                display: flex;
+                justify-content: center;
+                gap: 20px;
+                padding: 30px;
+                flex-wrap: wrap;
+            }}
+
+            .stat-card {{
+                flex: 1;
+                min-width: 200px;
+                padding: 25px;
+                border-radius: 10px;
+                text-align: center;
+                color: white;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            }}
+
+            .stat-card.total {{ background: linear-gradient(135deg, #3498db, #0D47A1); }}
+            .stat-card.passed {{ background: linear-gradient(135deg, #2ecc71, #2E7D32); }}
+            .stat-card.failed {{ background: linear-gradient(135deg, #e74c3c, #C62828); }}
+            .stat-card.skipped {{ background: linear-gradient(135deg, #f39c12, #E65100); }}
+
+            .stat-card h3 {{
+                font-size: 2.5rem;
+                margin-bottom: 10px;
+            }}
+
+            .progress-bar {{
+                height: 20px;
+                background-color: #e0e0e0;
+                border-radius: 10px;
+                overflow: hidden;
+                margin: 20px 40px;
+            }}
+
+            .progress {{
+                height: 100%;
+                background: linear-gradient(90deg, #2ecc71, #2ecc71);
+                width: {report_data['stats']['passed_percent']}%;
+            }}
+
+            .details {{
+                padding: 30px 40px;
+            }}
+
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 20px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            }}
+
+            th, td {{
+                padding: 15px 20px;
+                text-align: left;
+                border-bottom: 1px solid #ddd;
+            }}
+
+            th {{
+                background-color: #2c3e50;
+                color: white;
+                font-weight: 600;
+                text-transform: uppercase;
+                font-size: 0.9rem;
+            }}
+
+            tr:nth-child(even) {{
+                background-color: #f8f9fa;
+            }}
+
+            tr:hover {{
+                background-color: #eef7ff;
+            }}
+
+            .passed-row {{ border-left: 5px solid #2ecc71; }}
+            .failed-row {{ border-left: 5px solid #e74c3c; }}
+            .skipped-row {{ border-left: 5px solid #f39c12; }}
+
+            .status {{
+                display: inline-block;
+                padding: 5px 12px;
+                border-radius: 20px;
+                font-weight: 600;
+                font-size: 0.85rem;
+                text-transform: uppercase;
+            }}
+
+            .status.passed {{ background-color: #e8f5e9; color: #2ecc71; }}
+            .status.failed {{ background-color: #ffebee; color: #e74c3c; }}
+            .status.skipped {{ background-color: #fff3e0; color: #f39c12; }}
+
+            .error-details {{
+                background-color: #fff5f5;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 10px;
+                font-family: 'Consolas', monospace;
+                white-space: pre-wrap;
+                font-size: 0.9rem;
+                line-height: 1.4;
+                color: #c00;
+            }}
+
+            .skip-details {{
+                background-color: #fff8e1;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 10px;
+                font-family: 'Consolas', monospace;
+                white-space: pre-wrap;
+                font-size: 0.9rem;
+                line-height: 1.4;
+                color: #e65100;
+            }}
+
+            .screenshot-link {{
+                display: inline-block;
+                margin-top: 10px;
+                padding: 8px 15px;
+                background-color: #e3f2fd;
+                color: #1565c0;
+                border-radius: 4px;
+                text-decoration: none;
+                font-weight: 500;
+                transition: background 0.2s;
+            }}
+
+            .screenshot-link:hover {{
+                background-color: #bbdefb;
+            }}
+
+            footer {{
+                text-align: center;
+                padding: 20px;
+                color: #777;
+                font-size: 0.9rem;
+                border-top: 1px solid #ddd;
+                background-color: #f8f9fa;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>Отчет о тестировании</h1>
+                <p class="subtitle">Playwright + Pytest</p>
+            </header>
+
+            <section class="summary">
+                <div class="summary-item">
+                    <h3>Дата и время</h3>
+                    <p class="value">{report_data['timestamp']}</p>
+                </div>
+                <div class="summary-item">
+                    <h3>Окружение</h3>
+                    <p class="value">{report_data['env']}</p>
+                </div>
+                <div class="summary-item">
+                    <h3>Общее время</h3>
+                    <p class="value">{report_data['total_duration']:.2f} сек</p>
+                </div>
+            </section>
+
+            <section class="stats-cards">
+                <div class="stat-card total">
+                    <h3>{report_data['stats']['total']}</h3>
+                    <p>Всего тестов</p>
+                </div>
+                <div class="stat-card passed">
+                    <h3>{report_data['stats']['passed']}</h3>
+                    <p>Пройдено</p>
+                </div>
+                <div class="stat-card failed">
+                    <h3>{report_data['stats']['failed']}</h3>
+                    <p>Провалено</p>
+                </div>
+                <div class="stat-card skipped">
+                    <h3>{report_data['stats']['skipped']}</h3>
+                    <p>Пропущено</p>
+                </div>
+            </section>
+
+            <div class="progress-bar">
+                <div class="progress"></div>
+            </div>
+
+            <section class="details">
+                <h2>Детали выполнения тестов</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Тест</th>
+                            <th>Статус</th>
+                            <th>Длительность</th>
+                            <th>Детали</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {"".join([
+        f'<tr class="{test["status"]}-row">'
+        f'<td>{i+1}</td>'
+        f'<td>{test["name"]}</td>'
+        f'<td><span class="status {test["status"]}">{test["status"].upper()}</span></td>'
+        f'<td>{test["duration"]:.2f} сек</td>'
+        f'<td>'
+        f'{"<div class=\"error-details\">" + test["error"] + "</div>" if test["error"] and test["status"] == "failed" else ""}'
+        f'{"<div class=\"skip-details\">" + test["error"] + "</div>" if test["error"] and test["status"] == "skipped" else ""}'
+        f'{"<a href=\"" + test["screenshot"] + "\" class=\"screenshot-link\" target=\"_blank\">Скриншот</a>" if test["screenshot"] else ""}'
+        f'</td></tr>'
+        for i, test in enumerate([t for t in report_data["tests"] if t["when"] == "call"])
+    ])}
+                    </tbody>
+                </table>
+            </section>
+
+            <footer>
+                <p>Сгенерировано автоматически с помощью Playwright и Pytest</p>
+                <p>Время генерации: {time.strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </footer>
+        </div>
+    </body>
+    </html>
+    """
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(html)

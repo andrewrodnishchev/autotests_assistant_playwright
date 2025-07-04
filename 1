@@ -1,0 +1,776 @@
+import pytest
+import time
+import os
+import json
+import platform
+import itertools
+import sys
+import threading
+from typing import Optional, Dict, Any, List, Tuple
+from playwright.sync_api import Browser, Page, expect
+
+# ---------- Конфигурация окружений ----------
+ENVIRONMENTS: Dict[str, Dict[str, Any]] = {
+    'corp': {
+        'base_url': 'http://lk.corp.dev.ru',
+        'login': 'rodnischev@safib.ru',
+        'password': '1',
+        'timeout': 45_000
+    },
+    'setup': {
+        'base_url': 'http://office.setuplk.ru',
+        'login': 'rodnischev@safib.ru',
+        'password': '1',
+        'timeout': 45_000
+    }
+}
+
+# ---------- Глобальные переменные для отчетов ----------
+REPORTS_DIR = "test_reports"
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+# ---------- Статистика тестов ----------
+passed_tests: list = []
+failed_tests: list = []
+skipped_tests: list = []
+test_durations: Dict[str, float] = {}
+session_start_time: Optional[float] = None
+test_start_times: Dict[str, float] = {}
+pytest_config = None  # Будет инициализирован в pytest_configure
+
+# ---------- Лоадер для отображения текущего теста ----------
+class Loader:
+    def __init__(self):
+        self.done = False
+        self.spinner = itertools.cycle(['-', '/', '|', '\\'])
+        self.thread = None
+
+    def spin(self, test_name):
+        while not self.done:
+            sys.stdout.write(f"\r[ {next(self.spinner)} ] Running: {test_name}...")
+            sys.stdout.flush()
+            time.sleep(0.1)
+        sys.stdout.write('\r' + ' ' * (len(test_name) + 50) + '\r')
+        sys.stdout.flush()
+
+    def start(self, test_name):
+        self.done = False
+        self.thread = threading.Thread(target=self.spin, args=(test_name,))
+        self.thread.start()
+
+    def stop(self):
+        self.done = True
+        if self.thread:
+            self.thread.join()
+
+
+loader = Loader()
+
+# ---------- Основные фикстуры ----------
+@pytest.fixture(scope="session")
+def browser_type_launch_args():
+    """Аргументы запуска браузера."""
+    slow_mo_value = int(os.getenv("SLOWMO", "0"))
+    return {
+        "headless": False,
+        "args": ["--start-fullscreen"],
+        "slow_mo": slow_mo_value
+    }
+
+@pytest.fixture(scope="session")
+def browser_context_args():
+    """Параметры контекста браузера."""
+    return {
+        "viewport": {"width": 1920, "height": 1080},
+        "screen": {"width": 1920, "height": 1080}
+    }
+
+@pytest.fixture
+def auth_page(browser: Browser, request) -> Page:
+    """Фикстура авторизации с автоматическим определением окружения."""
+    env = get_current_environment(request)
+    config = ENVIRONMENTS[env]
+
+    context = browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        screen={"width": 1920, "height": 1080}
+    )
+    page = context.new_page()
+    page.set_default_timeout(config['timeout'])
+
+    try:
+        login_url = f"{config['base_url']}/Account/Login?returnUrl=%2FClientOrg"
+        page.goto(login_url)
+
+        locator = page.get_by_role("textbox", name="Email или Логин")
+
+        # Если не найден — пробуем по "Email"
+        if not locator.is_visible(timeout=2000):
+            locator = page.get_by_role("textbox", name="Email")
+
+        locator.fill(config['login'])
+
+        page.get_by_role("textbox", name="Пароль").fill(config['password'])
+        page.get_by_role("button", name="Вход").click()
+
+        expect(page).not_to_have_url(login_url, timeout=5000)
+        yield page
+    except Exception as e:
+        # Делаем скриншот при ошибке
+        screenshot_path = os.path.join(REPORTS_DIR, f"error_{time.strftime('%H%M%S')}.png")
+        page.screenshot(path=screenshot_path, full_page=True)
+        pytest.fail(f"Авторизация не удалась ({env}): {e}\nСкриншот: {screenshot_path}")
+    finally:
+        context.close()
+
+# ---------- Вспомогательные функции ----------
+def get_current_environment(request):
+    """Определяет текущее окружение по маркеру или аргументу."""
+    # 1. Проверяем маркер теста
+    env_marker = request.node.get_closest_marker("environment")
+    if env_marker and len(env_marker.args) > 0:
+        env = env_marker.args[0]
+        if env in ENVIRONMENTS:
+            return env
+        pytest.skip(f"Неизвестное окружение: {env}")
+
+    # 2. Проверяем аргумент командной строки
+    env_arg = request.config.getoption("--env")
+    if env_arg and env_arg in ENVIRONMENTS:
+        return env_arg
+
+    # 3. Возвращаем окружение по умолчанию
+    return 'corp'
+
+def get_system_info():
+    """Возвращает информацию о системе."""
+    return {
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "processor": platform.processor(),
+        "system_time": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+# ---------- Хуки pytest ----------
+def pytest_addoption(parser):
+    """Добавляем параметры командной строки."""
+    parser.addoption(
+        "--env",
+        choices=list(ENVIRONMENTS.keys()),
+        default='corp',
+        help="Выбор окружения для тестов: corp или setup"
+    )
+    # Добавляем опцию для формата отчета
+    parser.addoption(
+        "--report-format",
+        choices=["text", "html", "json", "all"],
+        default="text",
+        help="Формат отчета: text, html, json, all"
+    )
+    # Добавляем опцию для сохранения скриншотов
+    parser.addoption(
+        "--screenshots",
+        action="store_true",
+        default=False,
+        help="Сохранять скриншоты для упавших тестов"
+    )
+
+def pytest_configure(config):
+    """Конфигурация pytest."""
+    global pytest_config
+    pytest_config = config
+
+    config.addinivalue_line(
+        "markers",
+        "environment(name): маркирует тест для конкретного окружения"
+    )
+
+    # Инициализируем структуру для отчета
+    config._report_data = {
+        "env": config.getoption("--env"),
+        "start_time": time.time(),
+        "system": get_system_info(),
+        "tests": [],
+        "stats": {
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "broken": 0,
+            "total": 0
+        },
+        "screenshots": {}
+    }
+
+def pytest_sessionstart(session):
+    """Запоминаем время начала сессии."""
+    global session_start_time
+    session_start_time = time.time()
+
+def pytest_runtest_protocol(item, nextitem):
+    """Запоминаем время начала теста и выводим информацию о текущем тесте."""
+    test_name = item.nodeid
+    test_start_times[test_name] = time.time()
+
+    # Выводим информацию о текущем тесте с лоадером
+    print(f"\n[ START ] {test_name}")
+    loader.start(test_name)
+
+    # Даем pytest продолжить выполнение теста
+    result = None
+
+    # После выполнения теста останавливаем лоадер
+    loader.stop()
+
+    return result
+
+def pytest_runtest_logreport(report):
+    """Обрабатываем результаты тестов."""
+    if report.when != "call":
+        return
+
+    test_name = report.nodeid
+    start_time = test_start_times.get(test_name, time.time())
+    duration = time.time() - start_time
+    test_durations[test_name] = duration
+
+    # Выводим результат выполнения теста
+    if report.passed:
+        status = "✓ PASSED"
+        color = "\033[92m"  # green
+    elif report.failed:
+        status = "✗ FAILED"
+        color = "\033[91m"  # red
+    else:
+        status = "⚠ SKIPPED"
+        color = "\033[93m"  # yellow
+
+    reset_color = "\033[0m"
+    print(f"\r{color}[ {status} ] {test_name} ({duration:.2f}s){reset_color}")
+
+    # Добавляем информацию в отчет
+    test_data = {
+        "name": test_name,
+        "duration": duration,
+        "status": report.outcome.upper(),
+        "error": None,
+        "screenshot": None
+    }
+
+    # Обработка ошибок
+    if report.failed:
+        failed_tests.append(test_name)
+        test_data["error"] = str(report.longrepr)
+        pytest_config._report_data["stats"]["failed"] += 1
+
+        # Сохранение скриншота при падении
+        if pytest_config.getoption("--screenshots"):
+            screenshot_name = f"failure_{test_name.split('::')[-1]}_{time.strftime('%H%M%S')}.png"
+            screenshot_path = os.path.join(REPORTS_DIR, screenshot_name)
+
+            # Получаем page из теста (если доступен)
+            page = getattr(report, "page", None)
+            if page and hasattr(page, "screenshot"):
+                try:
+                    page.screenshot(path=screenshot_path, full_page=True)
+                    test_data["screenshot"] = screenshot_path
+                    pytest_config._report_data["screenshots"][test_name] = screenshot_path
+                except Exception as e:
+                    print(f"Не удалось сделать скриншот: {e}")
+
+    elif report.passed:
+        passed_tests.append(test_name)
+        pytest_config._report_data["stats"]["passed"] += 1
+    elif report.skipped:
+        skipped_tests.append(test_name)
+        pytest_config._report_data["stats"]["skipped"] += 1
+
+    pytest_config._report_data["tests"].append(test_data)
+    pytest_config._report_data["stats"]["total"] += 1
+
+def pytest_sessionfinish(session, exitstatus):
+    """Генерация отчетов в выбранном формате"""
+    session_end_time = time.time()
+    total_duration = session_end_time - session_start_time
+    report_format = session.config.getoption("--report-format")
+
+    # Сохраняем финальные данные
+    report_data = session.config._report_data
+    report_data["total_duration"] = total_duration
+    report_data["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    report_data["stats"]["passed_percent"] = round(
+        (report_data["stats"]["passed"] / report_data["stats"]["total"]) * 100, 1
+    ) if report_data["stats"]["total"] > 0 else 0
+
+    # Генерируем отчеты
+    formats = []
+    if report_format == "all":
+        formats = ["text", "html", "json"]
+    else:
+        formats = [report_format]
+
+    for fmt in formats:
+        if fmt == "text":
+            generate_text_report(report_data)
+        elif fmt == "html":
+            generate_html_report(report_data)
+        elif fmt == "json":
+            generate_json_report(report_data)
+
+    # Вывод в консоль
+    print("\n========== РЕЗУЛЬТАТЫ ТЕСТОВ ==========")
+
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    RESET = "\033[0m"
+
+    if passed_tests:
+        print(f"{GREEN}✅ PASSED:{RESET}")
+        for name in passed_tests:
+            print(f"  ✔ {name} [{test_durations.get(name, 0):.2f}s]")
+
+    if failed_tests:
+        print(f"{RED}❌ FAILED:{RESET}")
+        for name in failed_tests:
+            print(f"  ✘ {name} [{test_durations.get(name, 0):.2f}s]")
+            # Показываем путь к скриншоту если есть
+            screenshot = report_data["screenshots"].get(name)
+            if screenshot:
+                print(f"     Скриншот: {screenshot}")
+
+    if skipped_tests:
+        print(f"{YELLOW}⚠ SKIPPED:{RESET}")
+        for name in skipped_tests:
+            print(f"  ⚠ {name}")
+
+    print(f"\n⏱ Общее время выполнения: {total_duration:.2f} секунд")
+    print(f"🏁 Окружение: {session.config.getoption('--env')}")
+    print("========================================")
+
+    # Выводим информацию о сохраненных отчетах
+    if formats:
+        print("\n📊 Отчеты сохранены в:")
+        for fmt in formats:
+            ext = fmt if fmt != "text" else "txt"
+            pattern = f"report_*.{ext}"
+            report_files = [f for f in os.listdir(REPORTS_DIR) if f.endswith(f".{ext}")]
+            if report_files:
+                print(f"  - {os.path.join(REPORTS_DIR, sorted(report_files)[-1])}")
+
+# ---------- Генераторы отчетов ----------
+def generate_text_report(report_data: dict):
+    """Генерация текстового отчета"""
+    filename = os.path.join(REPORTS_DIR, f"report_{time.strftime('%Y%m%d_%H%M%S')}.txt")
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(f"ОТЧЕТ О ТЕСТИРОВАНИИ\n")
+        f.write(f"Дата/время: {report_data['timestamp']}\n")
+        f.write(f"Окружение: {report_data['env']}\n")
+        f.write(f"Общее время: {report_data['total_duration']:.2f} сек\n")
+        f.write(f"Система: {report_data['system']['platform']}\n")
+        f.write(f"Python: {report_data['system']['python_version']}\n")
+
+        f.write("\n===== СТАТИСТИКА =====\n")
+        f.write(f"Всего тестов: {report_data['stats']['total']}\n")
+        f.write(f"Успешно: {report_data['stats']['passed']} ({report_data['stats']['passed_percent']}%)\n")
+        f.write(f"Провалено: {report_data['stats']['failed']}\n")
+        f.write(f"Пропущено: {report_data['stats']['skipped']}\n")
+
+        f.write("\n===== ДЕТАЛИ ТЕСТОВ =====\n")
+        for test in report_data["tests"]:
+            status_icon = "✓" if test["status"] == "PASSED" else "✗" if test["status"] == "FAILED" else "⚠"
+            f.write(f"{status_icon} [{test['duration']:.2f}s] {test['name']}\n")
+            if test["error"]:
+                f.write(f"   ОШИБКА: {test['error']}\n")
+            if test["screenshot"]:
+                f.write(f"   СКРИНШОТ: {test['screenshot']}\n")
+            f.write("\n")
+
+def generate_html_report(report_data: dict):
+    """Генерация HTML отчета"""
+    filename = os.path.join(REPORTS_DIR, f"report_{time.strftime('%Y%m%d_%H%M%S')}.html")
+
+    # Стили для отчета
+    styles = """
+    <style>
+        :root {
+            --passed: #4CAF50;
+            --failed: #F44336;
+            --skipped: #FFC107;
+            --border: #ddd;
+            --light-gray: #f5f5f5;
+            --dark-gray: #333;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f9f9f9;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #2c3e50, #4a6491);
+            color: white;
+            padding: 30px 40px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .summary {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px 40px;
+            background-color: #f0f4f8;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .summary-item {
+            text-align: center;
+        }
+
+        .summary-item h3 {
+            font-size: 1.2rem;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        .summary-item .value {
+            font-size: 1.8rem;
+            font-weight: bold;
+        }
+
+        .stats-cards {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            padding: 30px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            flex: 1;
+            min-width: 200px;
+            padding: 25px;
+            border-radius: 10px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card.passed { background: linear-gradient(135deg, var(--passed), #2E7D32); }
+        .stat-card.failed { background: linear-gradient(135deg, var(--failed), #C62828); }
+        .stat-card.skipped { background: linear-gradient(135deg, var(--skipped), #F9A825); }
+        .stat-card.total { background: linear-gradient(135deg, #2196F3, #0D47A1); }
+
+        .stat-card h3 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .stat-card p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .details {
+            padding: 30px 40px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        th, td {
+            padding: 15px 20px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background-color: #2c3e50;
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.9rem;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+
+        tr:hover {
+            background-color: #eef7ff;
+        }
+
+        .passed-row { border-left: 5px solid var(--passed); }
+        .failed-row { border-left: 5px solid var(--failed); }
+        .skipped-row { border-left: 5px solid var(--skipped); }
+
+        .status {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        .status.passed { background-color: #e8f5e9; color: var(--passed); }
+        .status.failed { background-color: #ffebee; color: var(--failed); }
+        .status.skipped { background-color: #fff8e1; color: var(--skipped); }
+
+        .error-details {
+            background-color: #fff5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: 'Consolas', monospace;
+            white-space: pre-wrap;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            color: #c00;
+        }
+
+        .screenshot-link {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 15px;
+            background-color: #e3f2fd;
+            color: #1565c0;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .screenshot-link:hover {
+            background-color: #bbdefb;
+        }
+
+        .environment-info {
+            background-color: #e8f4ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .system-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .system-info div {
+            background-color: #f1f8ff;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #777;
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border);
+            background-color: #f8f9fa;
+        }
+
+        .progress-bar {
+            height: 10px;
+            background-color: #e0e0e0;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: 20px;
+        }
+
+        .progress {
+            height: 100%;
+            background: linear-gradient(90deg, var(--passed), var(--passed));
+            width: CALC_PERCENT%;
+        }
+    </style>
+    """.replace("CALC_PERCENT", str(report_data["stats"]["passed_percent"]))
+
+    # Сборка таблицы с тестами
+    tests_table = ""
+    for i, test in enumerate(report_data["tests"], 1):
+        status_class = test["status"].lower()
+        status_text = "ПРОЙДЕН" if status_class == "passed" else "ПРОВАЛЕН" if status_class == "failed" else "ПРОПУЩЕН"
+
+        tests_table += f"""
+        <tr class="{status_class}-row">
+            <td>{i}</td>
+            <td>{test['name']}</td>
+            <td><span class="status {status_class}">{status_text}</span></td>
+            <td>{test['duration']:.2f} сек</td>
+            <td>
+        """
+
+        if test["error"]:
+            tests_table += f"<div class='error-details'>{test['error']}</div>"
+
+        if test["screenshot"]:
+            tests_table += f"<a href='{test['screenshot']}' class='screenshot-link' target='_blank'>Посмотреть скриншот</a>"
+
+        tests_table += "</td></tr>"
+
+    # Сборка HTML
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Отчет о тестировании</title>
+        {styles}
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>Отчет о тестировании</h1>
+                <p class="subtitle">Полная информация о выполнении тестовой сессии</p>
+            </header>
+
+            <section class="summary">
+                <div class="summary-item">
+                    <h3>Дата и время</h3>
+                    <p class="value">{report_data['timestamp']}</p>
+                </div>
+                <div class="summary-item">
+                    <h3>Окружение</h3>
+                    <p class="value">{report_data['env']}</p>
+                </div>
+                <div class="summary-item">
+                    <h3>Общее время</h3>
+                    <p class="value">{report_data['total_duration']:.2f} сек</p>
+                </div>
+            </section>
+
+            <section class="stats-cards">
+                <div class="stat-card total">
+                    <h3>{report_data['stats']['total']}</h3>
+                    <p>Всего тестов</p>
+                </div>
+                <div class="stat-card passed">
+                    <h3>{report_data['stats']['passed']}</h3>
+                    <p>Пройдено</p>
+                </div>
+                <div class="stat-card failed">
+                    <h3>{report_data['stats']['failed']}</h3>
+                    <p>Провалено</p>
+                </div>
+                <div class="stat-card skipped">
+                    <h3>{report_data['stats']['skipped']}</h3>
+                    <p>Пропущено</p>
+                </div>
+            </section>
+
+            <div class="progress-bar">
+                <div class="progress" style="width: {report_data['stats']['passed_percent']}%"></div>
+            </div>
+
+            <section class="environment-info">
+                <h2>Информация о системе</h2>
+                <div class="system-info">
+                    <div><strong>Платформа:</strong> {report_data['system']['platform']}</div>
+                    <div><strong>Python:</strong> {report_data['system']['python_version']}</div>
+                    <div><strong>Процессор:</strong> {report_data['system']['processor']}</div>
+                    <div><strong>Время системы:</strong> {report_data['system']['system_time']}</div>
+                </div>
+            </section>
+
+            <section class="details">
+                <h2>Детали выполнения тестов</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Тест</th>
+                            <th>Статус</th>
+                            <th>Длительность</th>
+                            <th>Детали</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {tests_table}
+                    </tbody>
+                </table>
+            </section>
+
+            <footer>
+                <p>Сгенерировано автоматически с помощью Playwright и Pytest</p>
+                <p>Время генерации: {time.strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </footer>
+        </div>
+    </body>
+    </html>
+    """
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(html)
+
+def generate_json_report(report_data: dict):
+    """Генерация JSON отчета"""
+    filename = os.path.join(REPORTS_DIR, f"report_{time.strftime('%Y%m%d_%H%M%S')}.json")
+
+    # Упрощаем структуру для сериализации
+    report = {
+        "metadata": {
+            "timestamp": report_data["timestamp"],
+            "environment": report_data["env"],
+            "total_duration": report_data["total_duration"],
+            "system": report_data["system"]
+        },
+        "stats": report_data["stats"],
+        "tests": [
+            {
+                "name": test["name"],
+                "status": test["status"],
+                "duration": test["duration"],
+                "error": test["error"],
+                "screenshot": test["screenshot"]
+            } for test in report_data["tests"]
+        ]
+    }
+
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=4, ensure_ascii=False)

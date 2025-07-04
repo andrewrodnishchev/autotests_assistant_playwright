@@ -1,5 +1,6 @@
 import pytest
 from playwright.sync_api import Page, expect
+import time
 
 
 def test_activate_license(auth_page: Page):
@@ -15,11 +16,15 @@ def test_activate_license(auth_page: Page):
     page.get_by_text("информация об устройстве").click(button="right")
     page.wait_for_timeout(300)
 
-    page.get_by_text("Синхронизировать").nth(2).click()
-    page.wait_for_timeout(1000)
+    # Ждём появления нужной кнопки синхронизации именно для этой строки
+    target_sync = page.locator('a.js-btngrid[href*="collectionId=23"]', has_text="Синхронизировать")
+    target_sync.wait_for(state="visible", timeout=3000)
 
+    # Кликаем по нужному элементу
+    target_sync.click()
+    time.sleep(3)
     # Правый клик по устройству
-    page.get_by_role("gridcell", name="917 927").click(button="right")
+    page.get_by_role("gridcell", name="014 917 927").click(button="right")
     page.wait_for_timeout(500)
 
     page.get_by_role("link", name="Активировать лицензию").click()

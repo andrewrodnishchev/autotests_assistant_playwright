@@ -15,7 +15,7 @@ def test_send_message_to_device(auth_page):
     searchbox.press("Enter")
 
     # Отметить чекбокс нужной строки
-    row = page.get_by_role("row", name=" 014 917 927")
+    row = page.get_by_role("row", name="014 917 927")
     row.get_by_role("checkbox").check()
 
     # Отправить сообщение
